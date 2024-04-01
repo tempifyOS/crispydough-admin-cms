@@ -15,15 +15,10 @@ export async function OPTIONS() {
 }
 
 export async function POST(req: Request, { params }: { params: { storeId: string } }) {
-  const { productIds, deliveryCost } = await req.json();
-  console.log("Received deliveryCost: ", deliveryCost);
+  const { productIds } = await req.json();
 
   if (!productIds || productIds.length === 0) {
     return new NextResponse("Product ids are required", { status: 400 });
-  }
-
-  if (typeof deliveryCost !== 'number' || deliveryCost < 0) {
-    return new NextResponse("Invalid delivery cost", { status: 400 });
   }
 
   const products = await prismadb.product.findMany({
@@ -44,18 +39,6 @@ export async function POST(req: Request, { params }: { params: { storeId: string
       unit_amount: product.price.toNumber() * 100, // Ensure product.price is already in USD
     },
   }));
-
-  // Adding delivery cost to line_items
-  line_items.push({
-    quantity: 1,
-    price_data: {
-      currency: 'USD',
-      product_data: {
-        name: "Delivery Fee",
-      },
-      unit_amount: deliveryCost * 100, // Convert delivery cost to cents
-    },
-  });
 
   const order = await prismadb.order.create({
     data: {
