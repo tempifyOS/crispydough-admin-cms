@@ -14,37 +14,47 @@ export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders });
 }
 
-export async function POST(
-  req: Request,
-  { params }: { params: { storeId: string } }
-) {
-  const { productIds } = await req.json();
+export async function POST(req: Request, { params }: { params: { storeId: string } }) {
+  const { productIds, deliveryCost } = await req.json();
+  console.log("Received deliveryCost: ", deliveryCost);
 
   if (!productIds || productIds.length === 0) {
     return new NextResponse("Product ids are required", { status: 400 });
   }
 
+  if (typeof deliveryCost !== 'number' || deliveryCost < 0) {
+    return new NextResponse("Invalid delivery cost", { status: 400 });
+  }
+
   const products = await prismadb.product.findMany({
     where: {
       id: {
-        in: productIds
-      }
-    }
+        in: productIds,
+      },
+    },
   });
 
-  const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
+  const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = products.map((product) => ({
+    quantity: 1,
+    price_data: {
+      currency: 'USD',
+      product_data: {
+        name: product.name,
+      },
+      unit_amount: product.price.toNumber() * 100, // Ensure product.price is already in USD
+    },
+  }));
 
-  products.forEach((product) => {
-    line_items.push({
-      quantity: 1,
-      price_data: {
-        currency: 'USD',
-        product_data: {
-          name: product.name,
-        },
-        unit_amount: product.price.toNumber() * 100
-      }
-    });
+  // Adding delivery cost to line_items
+  line_items.push({
+    quantity: 1,
+    price_data: {
+      currency: 'USD',
+      product_data: {
+        name: "Delivery Fee",
+      },
+      unit_amount: deliveryCost * 100, // Convert delivery cost to cents
+    },
   });
 
   const order = await prismadb.order.create({
@@ -55,12 +65,12 @@ export async function POST(
         create: productIds.map((productId: string) => ({
           product: {
             connect: {
-              id: productId
-            }
-          }
-        }))
-      }
-    }
+              id: productId,
+            },
+          },
+        })),
+      },
+    },
   });
 
   const session = await stripe.checkout.sessions.create({
@@ -70,14 +80,14 @@ export async function POST(
     phone_number_collection: {
       enabled: true,
     },
-    success_url: `${process.env.FRONTEND_STORE_URL}/cart?success=1`,
+    success_url: `${process.env.FRONTEND_STORE_URL}/payment-completed`,
     cancel_url: `${process.env.FRONTEND_STORE_URL}/cart?canceled=1`,
     metadata: {
-      orderId: order.id
+      orderId: order.id,
     },
   });
 
   return NextResponse.json({ url: session.url }, {
-    headers: corsHeaders
+    headers: corsHeaders,
   });
 };
