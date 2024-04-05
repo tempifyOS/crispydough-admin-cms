@@ -16,7 +16,6 @@ export async function OPTIONS() {
 
 export async function POST(req: Request, { params }: { params: { storeId: string } }) {
   const { productIds, deliveryCost } = await req.json();
-  console.log("Received deliveryCost: ", deliveryCost);
 
   if (!productIds || productIds.length === 0) {
     return new NextResponse("Product ids are required", { status: 400 });
@@ -26,22 +25,29 @@ export async function POST(req: Request, { params }: { params: { storeId: string
     return new NextResponse("Invalid delivery cost", { status: 400 });
   }
 
+  // Aggregate product quantities
+  const productQuantityMap = productIds.reduce((acc: Record<string, number>, productId: string) => {
+    acc[productId] = (acc[productId] || 0) + 1;
+    return acc;
+  }, {});
+
+  const productIdsUnique = Object.keys(productQuantityMap);
   const products = await prismadb.product.findMany({
     where: {
       id: {
-        in: productIds,
+        in: productIdsUnique,
       },
     },
   });
 
   const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = products.map((product) => ({
-    quantity: 1,
+    quantity: productQuantityMap[product.id],
     price_data: {
       currency: 'USD',
       product_data: {
         name: product.name,
       },
-      unit_amount: product.price.toNumber() * 100, // Ensure product.price is already in USD
+      unit_amount: Math.round(product.price.toNumber() * 100), // Ensure product.price is already in USD
     },
   }));
 
@@ -57,17 +63,15 @@ export async function POST(req: Request, { params }: { params: { storeId: string
     },
   });
 
+  // Creating an order with orderItems that include quantity
   const order = await prismadb.order.create({
     data: {
       storeId: params.storeId,
       isPaid: false,
       orderItems: {
-        create: productIds.map((productId: string) => ({
-          product: {
-            connect: {
-              id: productId,
-            },
-          },
+        create: products.map((product) => ({
+          productId: product.id,
+          quantity: productQuantityMap[product.id],
         })),
       },
     },
