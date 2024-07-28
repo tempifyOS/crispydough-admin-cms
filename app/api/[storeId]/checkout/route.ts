@@ -84,6 +84,9 @@ export async function POST(req: Request, { params }: { params: { storeId: string
     phone_number_collection: {
       enabled: true,
     },
+    automatic_tax: {
+      enabled: true,
+    },
     success_url: `${process.env.FRONTEND_STORE_URL}/payment-completed`,
     cancel_url: `${process.env.FRONTEND_STORE_URL}/cart?canceled=1`,
     metadata: {
